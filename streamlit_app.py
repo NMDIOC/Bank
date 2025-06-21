@@ -1,204 +1,113 @@
 import streamlit as st
 import json
-import os
 import random
-from datetime import datetime
+import os
 
-DB_FILE = "banco_virtual.json"
+# ------------------------------
+# Cargar o crear base de datos
+# ------------------------------
+DATA_FILE = "usuarios.json"
 
-# Cargar base de datos
-def cargar_datos():
-    if not os.path.exists(DB_FILE):
-        return {}
-    with open(DB_FILE, "r") as f:
+if not os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "w") as f:
+        json.dump({}, f)
+
+def cargar_usuarios():
+    with open(DATA_FILE, "r") as f:
         return json.load(f)
 
-# Guardar base de datos
-def guardar_datos(data):
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+def guardar_usuarios(usuarios):
+    with open(DATA_FILE, "w") as f:
+        json.dump(usuarios, f, indent=4)
 
-# Crear cuenta
-def crear_cuenta(data, usuario, contraseña):
-    if usuario in data:
-        return "❌ Usuario ya existe."
-    data[usuario] = {
-        "contraseña": contraseña,
-        "saldo": 100,
-        "ahorro": 0,
-        "prestamo": 0,
-        "historial": []
-    }
-    guardar_datos(data)
-    return "✅ Cuenta creada con $100 de saldo inicial."
+# ------------------------------
+# Lógica de inversión
+# ------------------------------
+def invertir(usuario, tipo, usuarios):
+    saldo = usuarios[usuario]['saldo']
+    historial = usuarios[usuario]['historial']
 
-# Verificar usuario
-def login(data, usuario, contraseña):
-    if usuario in data and data[usuario]["contraseña"] == contraseña:
-        return True
-    return False
+    if tipo == "Segura":
+        monto = 5
+        if saldo < monto:
+            return "Saldo insuficiente"
+        usuarios[usuario]['saldo'] -= monto
+        resultado = random.choices([1, 0], weights=[80, 20])[0]
+        ganancia = 1 if resultado == 1 else 0
 
-# Agregar al historial
-def agregar_historial(data, usuario, mensaje):
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    data[usuario]["historial"].append(f"[{timestamp}] {mensaje}")
-    guardar_datos(data)
+    elif tipo == "Media":
+        monto = 10
+        if saldo < monto:
+            return "Saldo insuficiente"
+        usuarios[usuario]['saldo'] -= monto
+        resultado = random.choices(["ganar", "perder"], weights=[60, 40])[0]
+        ganancia = 5 if resultado == "ganar" else -2
 
-# Invertir
-def invertir(data, usuario, tipo, monto):
-    saldo = data[usuario]["saldo"]
-    if monto > saldo:
-        return "❌ No tienes suficiente saldo."
-    tipos = {
-        "segura": (5, 0.8, 1, 0),
-        "media": (10, 0.6, 5, -2),
-        "arriesgada": (15, 0.3, 10, -5)
-    }
-    minimo, prob, ganancia, perdida = tipos[tipo]
-    if monto < minimo:
-        return f"❌ Inversión mínima: ${minimo}"
+    elif tipo == "Arriesgada":
+        monto = 15
+        if saldo < monto:
+            return "Saldo insuficiente"
+        usuarios[usuario]['saldo'] -= monto
+        resultado = random.choices(["ganar", "perder"], weights=[30, 70])[0]
+        ganancia = 10 if resultado == "ganar" else -5
 
-    data[usuario]["saldo"] -= monto
-    if random.random() < prob:
-        resultado = monto + ganancia
-        data[usuario]["saldo"] += resultado
-        agregar_historial(data, usuario, f"Inversión {tipo}: +${ganancia}")
-        return f"🎉 Ganaste ${ganancia}. Nuevo saldo: ${data[usuario]['saldo']}"
-    else:
-        resultado = monto + perdida
-        data[usuario]["saldo"] += resultado
-        agregar_historial(data, usuario, f"Inversión {tipo}: ${perdida}")
-        return f"😢 Mala suerte. Recuperaste ${resultado}. Saldo actual: ${data[usuario]['saldo']}"
+    usuarios[usuario]['saldo'] += max(ganancia, 0)
+    historial.append({
+        "tipo": tipo,
+        "monto": monto,
+        "ganancia": ganancia,
+        "saldo_resultante": usuarios[usuario]['saldo']
+    })
 
-# Ahorro semanal con interés
-def aplicar_interes(data, usuario, tasa=0.02):
-    ahorro = data[usuario]["ahorro"]
-    ganancia = round(ahorro * tasa, 2)
-    data[usuario]["ahorro"] += ganancia
-    agregar_historial(data, usuario, f"Interés ganado en ahorro: +${ganancia}")
-    guardar_datos(data)
+    guardar_usuarios(usuarios)
 
-# Comprar en tienda
-def comprar(data, usuario, producto, precio):
-    if data[usuario]["saldo"] >= precio:
-        data[usuario]["saldo"] -= precio
-        agregar_historial(data, usuario, f"Compró {producto} por ${precio}")
-        guardar_datos(data)
-        return f"✅ Compraste {producto}. Saldo restante: ${data[usuario]['saldo']}"
-    return "❌ No tienes suficiente dinero."
+    return f"Inversión {tipo}: {'Ganaste' if ganancia >= 0 else 'Perdiste'} ${abs(ganancia)}"
 
-# Pedir préstamo
-def pedir_prestamo(data, usuario, monto, tasa=0.1):
-    interes = round(monto * tasa, 2)
-    total = monto + interes
-    data[usuario]["saldo"] += monto
-    data[usuario]["prestamo"] += total
-    agregar_historial(data, usuario, f"Préstamo de ${monto}. Deberás pagar ${total}")
-    guardar_datos(data)
-    return f"✅ Recibiste ${monto}. Deuda total: ${total}"
+# ------------------------------
+# Interfaz Streamlit
+# ------------------------------
+st.title("💰 Simulador de Inversión Económica")
 
-# Pagar préstamo
-def pagar_prestamo(data, usuario, pago):
-    deuda = data[usuario]["prestamo"]
-    if deuda == 0:
-        return "🎉 No tienes deudas."
-    if pago > data[usuario]["saldo"]:
-        return "❌ No tienes suficiente saldo."
-    pago_real = min(pago, deuda)
-    data[usuario]["saldo"] -= pago_real
-    data[usuario]["prestamo"] -= pago_real
-    agregar_historial(data, usuario, f"Pagó préstamo: -${pago_real}")
-    guardar_datos(data)
-    return f"✅ Pagaste ${pago_real}. Deuda restante: ${data[usuario]['prestamo']}"
+usuarios = cargar_usuarios()
 
-# App Streamlit
-st.set_page_config(page_title="Banco Educativo", page_icon="🏦")
-st.title("🏦 Banco Virtual Educativo")
-data = cargar_datos()
+opcion = st.sidebar.selectbox("Opciones", ["Crear cuenta", "Iniciar sesión"])
 
-if "usuario" not in st.session_state:
-    st.session_state.usuario = None
+if opcion == "Crear cuenta":
+    st.subheader("📝 Crear cuenta")
+    nuevo_usuario = st.text_input("Nombre de usuario")
+    nueva_clave = st.text_input("Contraseña", type="password")
+    if st.button("Crear"):
+        if nuevo_usuario in usuarios:
+            st.error("Ese usuario ya existe.")
+        else:
+            usuarios[nuevo_usuario] = {
+                "clave": nueva_clave,
+                "saldo": 100,
+                "historial": []
+            }
+            guardar_usuarios(usuarios)
+            st.success("Cuenta creada exitosamente. ¡Comienzas con $100!")
 
-if st.session_state.usuario is None:
-    tab1, tab2 = st.tabs(["🔐 Iniciar sesión", "🆕 Crear cuenta"])
-    with tab1:
-        user = st.text_input("Usuario")
-        password = st.text_input("Contraseña", type="password")
-        if st.button("Entrar"):
-            if login(data, user, password):
-                st.session_state.usuario = user
-                st.experimental_rerun()
-            else:
-                st.error("❌ Usuario o contraseña incorrectos.")
+elif opcion == "Iniciar sesión":
+    st.subheader("🔐 Iniciar sesión")
+    usuario = st.text_input("Usuario")
+    clave = st.text_input("Contraseña", type="password")
+    if st.button("Entrar"):
+        if usuario not in usuarios:
+            st.error("Usuario no encontrado.")
+        elif usuarios[usuario]['clave'] != clave:
+            st.error("Contraseña incorrecta.")
+        else:
+            st.success(f"Bienvenido, {usuario}")
+            st.write(f"💵 Tu saldo: **${usuarios[usuario]['saldo']}**")
 
-    with tab2:
-        new_user = st.text_input("Nuevo usuario")
-        new_pass = st.text_input("Nueva contraseña", type="password")
-        if st.button("Crear cuenta"):
-            msg = crear_cuenta(data, new_user, new_pass)
-            st.success(msg)
+            st.write("### 📈 Invertir tu dinero")
+            tipo = st.selectbox("Selecciona tipo de inversión", ["Segura", "Media", "Arriesgada"])
+            if st.button("Invertir"):
+                resultado = invertir(usuario, tipo, usuarios)
+                st.info(resultado)
+                st.write(f"Saldo actualizado: **${usuarios[usuario]['saldo']}**")
 
-else:
-    st.success(f"Bienvenido, {st.session_state.usuario}")
-    usuario = st.session_state.usuario
-    saldo = data[usuario]["saldo"]
-    ahorro = data[usuario]["ahorro"]
-    prestamo = data[usuario]["prestamo"]
-
-    st.subheader("💼 Tu información")
-    st.write(f"**Saldo:** ${saldo}")
-    st.write(f"**Ahorro:** ${ahorro}")
-    st.write(f"**Deuda:** ${prestamo}")
-
-    with st.expander("📥 Depositar al ahorro"):
-        monto = st.number_input("¿Cuánto quieres mover de tu saldo al ahorro?", min_value=0.0)
-        if st.button("Guardar"):
-            if monto <= saldo:
-                data[usuario]["saldo"] -= monto
-                data[usuario]["ahorro"] += monto
-                agregar_historial(data, usuario, f"Depositó ${monto} al ahorro")
-                st.success("✅ Movimiento realizado.")
-                st.experimental_rerun()
-            else:
-                st.error("❌ No tienes suficiente saldo.")
-
-    with st.expander("📈 Invertir dinero"):
-        tipo = st.selectbox("Tipo de inversión", ["segura", "media", "arriesgada"])
-        monto = st.number_input("¿Cuánto invertir?", min_value=0.0)
-        if st.button("Invertir"):
-            resultado = invertir(data, usuario, tipo, monto)
-            st.info(resultado)
-
-    with st.expander("🛍️ Comprar en tienda"):
-        productos = {"Juguete": 10, "Dulces": 5, "Pase especial": 15}
-        prod = st.selectbox("Producto", list(productos.keys()))
-        if st.button("Comprar"):
-            msg = comprar(data, usuario, prod, productos[prod])
-            st.info(msg)
-
-    with st.expander("💳 Préstamo"):
-        monto = st.number_input("¿Cuánto quieres pedir prestado?", min_value=0.0)
-        if st.button("Solicitar préstamo"):
-            msg = pedir_prestamo(data, usuario, monto)
-            st.success(msg)
-
-    with st.expander("💸 Pagar deuda"):
-        pago = st.number_input("¿Cuánto pagar?", min_value=0.0)
-        if st.button("Pagar préstamo"):
-            msg = pagar_prestamo(data, usuario, pago)
-            st.info(msg)
-
-    with st.expander("📅 Aplicar interés a ahorro"):
-        if st.button("Aplicar interés"):
-            aplicar_interes(data, usuario)
-            st.success("✅ Interés aplicado.")
-            st.experimental_rerun()
-
-    with st.expander("📜 Historial de transacciones"):
-        historial = data[usuario]["historial"]
-        for h in reversed(historial[-20:]):
-            st.write(h)
-
-    if st.button("🚪 Cerrar sesión"):
-        st.session_state.usuario = None
-        st.experimental_rerun()
+            st.write("### 📜 Historial de inversiones")
+            for h in usuarios[usuario]['historial']:
+                st.write(f"- Tipo: {h['tipo']} | Inversión: ${h['monto']} | Resultado: ${h['ganancia']} | Saldo tras inversión: ${h['saldo_resultante']}")
