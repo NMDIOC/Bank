@@ -7,7 +7,7 @@ import os
 # Configuración
 # ------------------------------
 DATA_FILE = "usuarios.json"
-CLAVE_PADRES = "admin123"  # Cambia esta clave como quieras
+CLAVE_PADRES = "admin123"
 
 # ------------------------------
 # Base de datos
@@ -25,55 +25,57 @@ def guardar_usuarios(usuarios):
         json.dump(usuarios, f, indent=4)
 
 # ------------------------------
-# Inversión con comisión
+# Funciones económicas
 # ------------------------------
-def invertir(usuario, tipo, usuarios):
+def invertir(usuario, tipo, monto, usuarios):
     saldo = usuarios[usuario]['saldo']
     historial = usuarios[usuario]['historial']
 
+    # Definir comisión según el tipo
     if tipo == "Segura":
-        monto = 5
         comision = 0.5
-        resultado = random.choices([1, 0], weights=[80, 20])[0]
-        ganancia = 1 if resultado == 1 else 0
+        prob = 80
+        ganancia_fija = 0.2 * monto
     elif tipo == "Media":
-        monto = 10
         comision = 1
-        resultado = random.choices(["ganar", "perder"], weights=[60, 40])[0]
-        ganancia = 5 if resultado == "ganar" else -2
+        prob = 60
+        ganancia_fija = 0.5 * monto
     elif tipo == "Arriesgada":
-        monto = 15
         comision = 1.5
-        resultado = random.choices(["ganar", "perder"], weights=[30, 70])[0]
-        ganancia = 10 if resultado == "ganar" else -5
+        prob = 30
+        ganancia_fija = monto
     else:
         return "Tipo de inversión inválido"
 
     total_coste = monto + comision
     if saldo < total_coste:
-        return "Saldo insuficiente (se necesita cubrir comisión también)"
+        return "Saldo insuficiente para cubrir inversión y comisión"
 
+    resultado = random.randint(1, 100)
     usuarios[usuario]['saldo'] -= total_coste
-    usuarios[usuario]['saldo'] += max(ganancia, 0)
+
+    if resultado <= prob:
+        ganancia = ganancia_fija
+        usuarios[usuario]['saldo'] += monto + ganancia
+        resultado_texto = f"Ganaste ${ganancia:.2f}"
+    else:
+        ganancia = -monto
+        resultado_texto = f"Perdiste tu inversión de ${monto}"
 
     historial.append({
         "tipo": "Inversión",
         "detalle": f"{tipo} (Comisión: ${comision})",
         "monto": monto,
-        "resultado": ganancia,
+        "resultado": resultado_texto,
         "saldo_resultante": usuarios[usuario]['saldo']
     })
 
     guardar_usuarios(usuarios)
+    return resultado_texto
 
-    return f"Inversión {tipo}: {'Ganaste' if ganancia >= 0 else 'Perdiste'} ${abs(ganancia)} (Comisión: ${comision})"
-
-# ------------------------------
-# Depósito y Retiro
-# ------------------------------
 def depositar(usuario, monto, clave_padre, usuarios):
     if clave_padre != CLAVE_PADRES:
-        return "Contraseña de padres incorrecta"
+        return "Clave de padres incorrecta"
     usuarios[usuario]['saldo'] += monto
     usuarios[usuario]['historial'].append({
         "tipo": "Depósito",
@@ -87,7 +89,7 @@ def depositar(usuario, monto, clave_padre, usuarios):
 
 def retirar(usuario, monto, clave_padre, usuarios):
     if clave_padre != CLAVE_PADRES:
-        return "Contraseña de padres incorrecta"
+        return "Clave de padres incorrecta"
     if usuarios[usuario]['saldo'] < monto:
         return "Saldo insuficiente"
     usuarios[usuario]['saldo'] -= monto
@@ -101,17 +103,14 @@ def retirar(usuario, monto, clave_padre, usuarios):
     guardar_usuarios(usuarios)
     return f"Retiro exitoso de ${monto}"
 
-# ------------------------------
-# Eliminar cuenta
-# ------------------------------
-def eliminar_cuenta(usuario_a_borrar, clave_padre, usuarios):
+def eliminar_cuenta(usuario_borrar, clave_padre, usuarios):
     if clave_padre != CLAVE_PADRES:
-        return "Contraseña de padres incorrecta"
-    if usuario_a_borrar not in usuarios:
+        return "Clave de padres incorrecta"
+    if usuario_borrar not in usuarios:
         return "Usuario no encontrado"
-    del usuarios[usuario_a_borrar]
+    del usuarios[usuario_borrar]
     guardar_usuarios(usuarios)
-    return f"Cuenta '{usuario_a_borrar}' eliminada con éxito."
+    return f"Cuenta '{usuario_borrar}' eliminada con éxito"
 
 # ------------------------------
 # Interfaz principal
@@ -123,10 +122,10 @@ usuarios = cargar_usuarios()
 opcion = st.sidebar.selectbox("Opciones", ["Crear cuenta", "Iniciar sesión", "Eliminar cuenta"])
 
 if opcion == "Crear cuenta":
-    st.subheader("📝 Crear nueva cuenta")
+    st.subheader("📝 Crear cuenta")
     nuevo_usuario = st.text_input("Nombre de usuario")
     nueva_clave = st.text_input("Contraseña", type="password")
-    if st.button("Crear cuenta"):
+    if st.button("Crear"):
         if nuevo_usuario in usuarios:
             st.error("Ese usuario ya existe.")
         else:
@@ -136,18 +135,15 @@ if opcion == "Crear cuenta":
                 "historial": []
             }
             guardar_usuarios(usuarios)
-            st.success("Cuenta creada. ¡Comienzas con $100!")
+            st.success("¡Cuenta creada! Tienes $100 iniciales.")
 
 elif opcion == "Eliminar cuenta":
     st.subheader("🗑️ Eliminar cuenta")
-    usuario_borrar = st.text_input("Nombre de cuenta a eliminar")
-    clave_admin = st.text_input("Contraseña de padres", type="password")
-    if st.button("Eliminar"):
+    usuario_borrar = st.text_input("Nombre de la cuenta")
+    clave_admin = st.text_input("Clave de padres", type="password")
+    if st.button("Eliminar cuenta"):
         resultado = eliminar_cuenta(usuario_borrar, clave_admin, usuarios)
-        if "éxito" in resultado:
-            st.success(resultado)
-        else:
-            st.error(resultado)
+        st.info(resultado)
 
 elif opcion == "Iniciar sesión":
     st.subheader("🔐 Iniciar sesión")
@@ -155,38 +151,39 @@ elif opcion == "Iniciar sesión":
     clave = st.text_input("Contraseña", type="password")
     if st.button("Entrar"):
         if usuario not in usuarios:
-            st.error("Usuario no encontrado.")
+            st.error("Usuario no existe.")
         elif usuarios[usuario]['clave'] != clave:
             st.error("Contraseña incorrecta.")
         else:
             st.success(f"Bienvenido, {usuario}")
-            st.write(f"💵 Tu saldo actual: **${usuarios[usuario]['saldo']}**")
+            st.write(f"💵 Saldo: **${usuarios[usuario]['saldo']:.2f}**")
 
-            st.write("### 📈 Invertir dinero")
-            tipo = st.selectbox("Tipo de inversión", ["Segura", "Media", "Arriesgada"])
-            if st.button("Invertir"):
-                resultado = invertir(usuario, tipo, usuarios)
+            # Inversión
+            st.write("### 📈 Inversión")
+            tipo = st.selectbox("Tipo", ["Segura", "Media", "Arriesgada"])
+            monto = st.number_input("¿Cuánto quieres invertir?", min_value=1.0, step=1.0)
+            if st.button("Hacer inversión"):
+                resultado = invertir(usuario, tipo, monto, usuarios)
                 st.info(resultado)
-                st.write(f"Saldo nuevo: **${usuarios[usuario]['saldo']}**")
+                st.write(f"Nuevo saldo: **${usuarios[usuario]['saldo']:.2f}**")
 
-            st.write("### ➕ Depósito (requiere clave de padres)")
-            deposito = st.number_input("Cantidad a depositar", min_value=1, step=1)
-            clave_dep = st.text_input("Clave de padres para depósito", type="password")
+            # Depósito
+            st.write("### ➕ Depositar dinero (clave de padres)")
+            monto_dep = st.number_input("Cantidad a depositar", min_value=1, step=1, key="dep")
+            clave_dep = st.text_input("Clave de padres para depósito", type="password", key="clave_dep")
             if st.button("Depositar"):
-                resultado = depositar(usuario, deposito, clave_dep, usuarios)
+                resultado = depositar(usuario, monto_dep, clave_dep, usuarios)
                 st.info(resultado)
 
-            st.write("### ➖ Retiro (requiere clave de padres)")
-            retiro = st.number_input("Cantidad a retirar", min_value=1, step=1, key="retiro")
-            clave_ret = st.text_input("Clave de padres para retiro", type="password")
+            # Retiro
+            st.write("### ➖ Retirar dinero (clave de padres)")
+            monto_ret = st.number_input("Cantidad a retirar", min_value=1, step=1, key="ret")
+            clave_ret = st.text_input("Clave de padres para retiro", type="password", key="clave_ret")
             if st.button("Retirar"):
-                resultado = retirar(usuario, retiro, clave_ret, usuarios)
+                resultado = retirar(usuario, monto_ret, clave_ret, usuarios)
                 st.info(resultado)
 
-            st.write("### 📜 Historial completo")
-            historial = usuarios[usuario]['historial']
-            if historial:
-                for h in reversed(historial):
-                    st.write(f"- [{h['tipo']}] {h['detalle']} | Monto: ${h['monto']} | Resultado: {h['resultado']} | Saldo: ${h['saldo_resultante']}")
-            else:
-                st.info("Aún no hay movimientos.")
+            # Historial
+            st.write("### 📜 Historial")
+            for mov in reversed(usuarios[usuario]['historial']):
+                st.write(f"- [{mov['tipo']}] {mov['detalle']} | Monto: ${mov['monto']} | Resultado: {mov['resultado']} | Saldo: ${mov['saldo_resultante']:.2f}")
